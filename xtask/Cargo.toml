@@ -19,4 +19,4 @@ structopt = "0.3.21"
 syn = { version = "1.0.60", features = ["full", "parsing", "visit"] }
 
 [build-dependencies]
-_ac_library_rs = { package = "ac-library-rs", git = "https://github.com/rust-lang-ja/ac-library-rs", branch = "replace-absolute-paths" }
+_ac_library_rs = { package = "ac-library-rs", git = "https://github.com/rust-lang-ja/ac-library-rs" }

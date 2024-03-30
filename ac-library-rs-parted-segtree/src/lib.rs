@@ -10,8 +10,9 @@ mod segtree {
     use super::internal_type_traits::{BoundedAbove, BoundedBelow, One, Zero};
     use std::cmp::{max, min};
     use std::convert::Infallible;
+    use std::iter::FromIterator;
     use std::marker::PhantomData;
-    use std::ops::{Add, Mul};
+    use std::ops::{Add, BitAnd, BitOr, BitXor, Bound, Mul, Not, RangeBounds};
 
     // TODO Should I split monoid-related traits to another module?
     pub trait Monoid {
@@ -76,6 +77,48 @@ mod segtree {
         }
     }
 
+    pub struct BitwiseOr<S>(Infallible, PhantomData<fn() -> S>);
+    impl<S> Monoid for BitwiseOr<S>
+    where
+        S: Copy + BitOr<Output = S> + Zero,
+    {
+        type S = S;
+        fn identity() -> Self::S {
+            S::zero()
+        }
+        fn binary_operation(a: &Self::S, b: &Self::S) -> Self::S {
+            *a | *b
+        }
+    }
+
+    pub struct BitwiseAnd<S>(Infallible, PhantomData<fn() -> S>);
+    impl<S> Monoid for BitwiseAnd<S>
+    where
+        S: Copy + BitAnd<Output = S> + Not<Output = S> + Zero,
+    {
+        type S = S;
+        fn identity() -> Self::S {
+            !S::zero()
+        }
+        fn binary_operation(a: &Self::S, b: &Self::S) -> Self::S {
+            *a & *b
+        }
+    }
+
+    pub struct BitwiseXor<S>(Infallible, PhantomData<fn() -> S>);
+    impl<S> Monoid for BitwiseXor<S>
+    where
+        S: Copy + BitXor<Output = S> + Zero,
+    {
+        type S = S;
+        fn identity() -> Self::S {
+            S::zero()
+        }
+        fn binary_operation(a: &Self::S, b: &Self::S) -> Self::S {
+            *a ^ *b
+        }
+    }
+
     impl<M: Monoid> Default for Segtree<M> {
         fn default() -> Self {
             Segtree::new(0)
@@ -92,7 +135,27 @@ mod segtree {
             let log = ceil_pow2(n as u32) as usize;
             let size = 1 << log;
             let mut d = vec![M::identity(); 2 * size];
-            d[size..(size + n)].clone_from_slice(&v);
+            d[size..][..n].clone_from_slice(&v);
+            let mut ret = Segtree { n, size, log, d };
+            for i in (1..size).rev() {
+                ret.update(i);
+            }
+            ret
+        }
+    }
+    impl<M: Monoid> FromIterator<M::S> for Segtree<M> {
+        fn from_iter<T: IntoIterator<Item = M::S>>(iter: T) -> Self {
+            let iter = iter.into_iter();
+            let n = iter.size_hint().0;
+            let log = ceil_pow2(n as u32) as usize;
+            let size = 1 << log;
+            let mut d = Vec::with_capacity(size * 2);
+            d.extend(
+                std::iter::repeat_with(M::identity)
+                    .take(size)
+                    .chain(iter)
+                    .chain(std::iter::repeat_with(M::identity).take(size - n)),
+            );
             let mut ret = Segtree { n, size, log, d };
             for i in (1..size).rev() {
                 ret.update(i);
@@ -115,7 +178,31 @@ mod segtree {
             self.d[p + self.size].clone()
         }
 
-        pub fn prod(&self, mut l: usize, mut r: usize) -> M::S {
+        pub fn get_slice(&self) -> &[M::S] {
+            &self.d[self.size..][..self.n]
+        }
+
+        pub fn prod<R>(&self, range: R) -> M::S
+        where
+            R: RangeBounds<usize>,
+        {
+            // Trivial optimization
+            if range.start_bound() == Bound::Unbounded && range.end_bound() == Bound::Unbounded {
+                return self.all_prod();
+            }
+
+            let mut r = match range.end_bound() {
+                Bound::Included(r) => r + 1,
+                Bound::Excluded(r) => *r,
+                Bound::Unbounded => self.n,
+            };
+            let mut l = match range.start_bound() {
+                Bound::Included(l) => *l,
+                Bound::Excluded(l) => l + 1,
+                // TODO: There are another way of optimizing [0..r)
+                Bound::Unbounded => 0,
+            };
+
             assert!(l <= r && r <= self.n);
             let mut sml = M::identity();
             let mut smr = M::identity();
@@ -246,8 +333,9 @@ mod segtree {
 
     #[cfg(test)]
     mod tests {
-        use super::super::Segtree;
-        use super::Max;
+        use super::super::segtree::Max;
+        use super::Segtree;
+        use std::ops::{Bound::*, RangeBounds};
 
         #[test]
         fn test_max_segtree() {
@@ -280,12 +368,20 @@ mod segtree {
             for i in 0..n {
                 assert_eq!(segtree.get(i), base[i]);
             }
+
+            check(base, segtree, ..);
             for i in 0..=n {
+                check(base, segtree, ..i);
+                check(base, segtree, i..);
+                if i < n {
+                    check(base, segtree, ..=i);
+                }
                 for j in i..=n {
-                    assert_eq!(
-                        segtree.prod(i, j),
-                        base[i..j].iter().max().copied().unwrap_or(i32::min_value())
-                    );
+                    check(base, segtree, i..j);
+                    if j < n {
+                        check(base, segtree, i..=j);
+                        check(base, segtree, (Excluded(i), Included(j)));
+                    }
                 }
             }
             assert_eq!(
@@ -319,6 +415,17 @@ mod segtree {
                     );
                 }
             }
+        }
+
+        fn check(base: &[i32], segtree: &Segtree<Max<i32>>, range: impl RangeBounds<usize>) {
+            let expected = base
+                .iter()
+                .enumerate()
+                .filter_map(|(i, a)| Some(a).filter(|_| range.contains(&i)))
+                .max()
+                .copied()
+                .unwrap_or(i32::min_value());
+            assert_eq!(segtree.prod(range), expected);
         }
     }
 }

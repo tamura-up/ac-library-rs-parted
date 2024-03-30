@@ -3,6 +3,8 @@
 pub use self::fenwicktree::*;
 
 mod fenwicktree {
+    use std::ops::{Bound, RangeBounds};
+
     // Reference: https://en.wikipedia.org/wiki/Fenwick_tree
     pub struct FenwickTree<T> {
         n: usize,
@@ -39,10 +41,21 @@ mod fenwicktree {
             }
         }
         /// Returns data[l] + ... + data[r - 1].
-        pub fn sum(&self, l: usize, r: usize) -> T
+        pub fn sum<R>(&self, range: R) -> T
         where
             T: std::ops::Sub<Output = T>,
+            R: RangeBounds<usize>,
         {
+            let r = match range.end_bound() {
+                Bound::Included(r) => r + 1,
+                Bound::Excluded(r) => *r,
+                Bound::Unbounded => self.n,
+            };
+            let l = match range.start_bound() {
+                Bound::Included(l) => *l,
+                Bound::Excluded(l) => l + 1,
+                Bound::Unbounded => return self.accum(r),
+            };
             self.accum(r) - self.accum(l)
         }
     }
@@ -50,6 +63,7 @@ mod fenwicktree {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use std::ops::Bound::*;
 
         #[test]
         fn fenwick_tree_works() {
@@ -58,9 +72,16 @@ mod fenwicktree {
             for i in 0..5 {
                 bit.add(i, i as i64 + 1);
             }
-            assert_eq!(bit.sum(0, 5), 15);
-            assert_eq!(bit.sum(0, 4), 10);
-            assert_eq!(bit.sum(1, 3), 5);
+            assert_eq!(bit.sum(0..5), 15);
+            assert_eq!(bit.sum(0..4), 10);
+            assert_eq!(bit.sum(1..3), 5);
+
+            assert_eq!(bit.sum(..), 15);
+            assert_eq!(bit.sum(..2), 3);
+            assert_eq!(bit.sum(..=2), 6);
+            assert_eq!(bit.sum(1..), 14);
+            assert_eq!(bit.sum(1..=3), 9);
+            assert_eq!(bit.sum((Excluded(0), Included(2))), 5);
         }
     }
 }
