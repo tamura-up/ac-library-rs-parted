@@ -349,7 +349,7 @@ mod lazysegtree {
                         self.lz[(1 << i) + j]
                     ))?;
                 }
-                f.write_char('\n')?;
+                f.write_str("\n")?;
             }
             for i in 0..self.size {
                 f.write_fmt(format_args!("{:?}\t", self.d[self.size + i]))?;
